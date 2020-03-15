@@ -53,10 +53,42 @@ GPIO3とGND
 git clone https://github.com/zusizusi/raspi_smartlock.git
 python3 nfcservo.py
 ```
-
  
 # Note
- 
+## Raspiが起動したら自動実行する方法
+### 1 .shファイルを作製
+```bash
+nano autorun.sh
+```
+autorun.shの中身
+```bash
+#!/bin/sh
+python3 nfcservo.py
+```
+autorun.shを保存後，実行権限を付与
+```bash
+chmod +x autorun.sh
+```
+### 2 自動実行用のフォルダ作製
+```bash
+cd .config
+mkdir autostart
+cd autostart
+```
+### 3 設定ファイルの作成
+```bash
+nano nfcservo.desktop
+```
+nfcservo.desktopの内容
+```bash
+[Desktop Entry]
+Exec=lxterminal -e /home/pi/autorun.sh
+Type=Application
+Name=Nfcservo
+Terminal=true
+```
+
+
 # Author
 
 * 作成者 : zusi
