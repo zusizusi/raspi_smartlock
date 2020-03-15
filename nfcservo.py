@@ -37,20 +37,23 @@ SERVO_PWM = 50 #サーボモータのPWMサイクル値(SG-90の場合、20ms=50
 SERVO_OPEN =10.85  #時にサーボモータに渡すデューティサイクル値(鍵に合わせて変更)
 SERVO_CLOSE =4.55 #施錠時にサーボモータに渡すデューティサイクル値(鍵に合わせて変更)
 SERVO_wait = 7.7 #施錠時にサーボモータに渡すデューティサイクル値(鍵に合わせて変更)
+button_GPIO = 3 # データベースプログラムに入るスイッチ
+
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(SERVO_GPIO, GPIO.OUT)
+GPIO.setup(button_GPIO, GPIO.IN,pull_up_down=GPIO.PUD_UP)
 ##########################
 
 ###### 鍵の設定 #######
 # 鍵の状態を保管w
 status = ""
-db_change_signal = "off"
+gpio_button = ""
 ####################		
 
 
 def nfc_imput():
-    global db_change_signal
+    global gpio_button
     # USBに接続されたNFCリーダに接続してインスタンス化
     clf = nfc.ContactlessFrontend('usb')
     while True:
@@ -66,20 +69,20 @@ def nfc_imput():
             idm = binascii.hexlify(tag.idm)
             #print('Suica detected. idm = ' + str(idm))
             break
-        if db_change_signal == "on":
-            idm = "db_change"
+        if GPIO.input(button_GPIO) == 0:
+            print(gpio_button)
+            gpio_button = "0"
+            idm = "gpiobutton"
             break
-        
         
     clf.close()	
     return idm
 
 
-def database_change(waitinput):
-    global db_change_signal
-    #print("NFC登録データベースを改変します。以下の選択肢から該当番号を入力してください。\n データの追加:1\n データの削除:2\n 全データの照会:3")
-    number = waitinput
-    #number = input('該当番号>> ')
+def database_change():
+    print("NFC登録データベースを改変します。以下の選択肢から該当番号を入力してください。\n データの追加:1\n データの削除:2\n 全データの照会:3")
+    #number = waitinput
+    number = input('該当番号>> ')
 
     # データの追加
     if number == str(1):
@@ -87,7 +90,7 @@ def database_change(waitinput):
         print("あなたの名前を教えてください。 例　Shintaro_Hasegawa")
         your_name = input('name>> ')
         print("name : " + your_name)
-        db_change_signal = "off"
+
         print("登録するNFCカードをリーダーにかざしてください")
         idm = nfc_imput()
 
@@ -111,7 +114,7 @@ def database_change(waitinput):
     # データの削除
     elif number == str(2):
         print("登録データの削除をします．")
-        db_change_signal = "off"
+
         print("削除するNFCカードをリーダーにかざしてください")
         idm_number = str(nfc_imput())
         # データベースにidm_numberがあるかどうか検索
@@ -128,16 +131,48 @@ def database_change(waitinput):
     # データの表示
     elif number == str(3):
         print("登録されているIDの一覧を表示します．")
-        db_change_signal = "off"
+    
         datas = databese_namelist.show()
         for data in datas:
             print(data)
     else:
+        
         print("errer")
         print("半角で　1 or 2 or 3を入力して")
     
-    time.sleep(5)
+
+    time.sleep(1)
     
+class Databese_Touchlog():
+    def __init__(self):
+        self.dbpath = '/home/pi/nfcname.db'
+        self.connection = sqlite3.connect(self.dbpath)
+        self.connection.isolation_level = None # 自動コミット
+        self.cursor = self.connection.cursor()
+        sql = 'CREATE TABLE IF NOT EXISTS touchlog(person_name TEXT NOT NULL, idm_number TEXT NOT NULL, detect_time REAL NOT NULL primary key, state TEXT NOT NULL)'
+        self.cursor.execute(sql)
+        # コミット
+        self.connection.commit()
+    
+    def touchlog(self, person_name, idm_number, detect_time, state):
+        connection=self.connection
+        cursor=self.cursor
+        # データベースにidm_numberがあるかどうか検索
+        sql = 'INSERT INTO touchlog (person_name, idm_number, detect_time, state) VALUES (?,?,?,?)'
+        datas = (person_name, idm_number, detect_time, state,) #タプル型で渡す
+        connection.execute(sql, datas)
+        connection.commit() 
+
+    def delete_data(self):
+        connection=self.connection
+        cursor=self.cursor
+        ytime = time.time() - 7776000
+        # データベースの古いデータを削除(3ヶ月前のデータ)
+        sql = "delete from touchlog where ? <= detect_time AND detect_time <= ?"
+        datas = (0, ytime,) #タプル型で渡す　
+        connection.execute(sql, datas)
+        connection.commit() 
+        
 
 
 
@@ -240,61 +275,55 @@ class ServoCon:
         return status
         servo.stop()
 
+
+
 def nfcservo():
-    global imput_number
+    global gpio_button
+    while True:
+        print ('NFC waiting...')
+        idm = nfc_imput()
+        # 特定のIDmだった場合のアクション
+        # データベースにidm_numberがあるかどうか検索
+        serchresult = databese_namelist.idm_serch(str(idm))
+        print(gpio_button)
+        if gpio_button =="0":
+                database_change()
+                gpio_button = "1"
+                continue
+        # idmがデータベースになかったら
+        elif serchresult == None:
+            print(str(idm) + "は登録されていません")
+            # logを記録する
+            database_touchlog.touchlog("No registration", str(idm), time.time(), status)
 
-    print ('NFC waiting...')
-    idm = nfc_imput()
-    if idm == "db_change":
-        database_change(imput_number)
+            time.sleep(1)
+            
+        elif serchresult[1] == str(idm):
+            print("【 " + serchresult[0] + "の登録済みid : " + serchresult[1] + "】")
+            
+            # 現在の状態を記録
+            before_status = ServoCon.get_status()
+            
+            if before_status == "open":
+                ServoCon.close_key()
+            elif before_status == "close":
+                ServoCon.open_key()
+            state = str(before_status) + " >>>>> " + str(ServoCon.get_status())
+            print("status : " + state)
+            
+            # logを記録する
+            database_touchlog.touchlog(serchresult[0], serchresult[1], time.time(), state)
+            #file = open(file_log,'a')
+            #file.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ", " + result[0]+ ", " + str(idm) + ", " + before_status + ">>>" + ServoCon.get_status() + "\n")
+            #file.close()
 
-        return
-    # 特定のIDmだった場合のアクション
-    # データベースにidm_numberがあるかどうか検索
-    serchresult = databese_namelist.idm_serch(str(idm))
-    # idmがデータベースになかったら
-    if serchresult == None:
-        print(str(idm) + "は登録されていません")
-        # logを記録する
+            # 念のため１秒まつ
+            time.sleep(1)    
+            
+        else:
+            print("errer")
 
-        time.sleep(1)
-        
-    elif serchresult[1] == str(idm):
-        print("【 " + serchresult[0] + "の登録済みid : " + serchresult[1] + "】")
-        
-        # 現在の状態を記録
-        before_status = ServoCon.get_status()
-        
-        if before_status == "open":
-            ServoCon.close_key()
-        elif before_status == "close":
-            ServoCon.open_key()
-        print("status : " + before_status + ">>>>>" + ServoCon.get_status())
-        
-        # logを記録する
-        #file = open(file_log,'a')
-        #file.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ", " + result[0]+ ", " + str(idm) + ", " + before_status + ">>>" + ServoCon.get_status() + "\n")
-        #file.close()
 
-        # 念のため１秒まつ
-        time.sleep(1)    
-        
-    else:
-        print("errer")
-
-def waitcount():
-    global db_change_signal
-    global imput_number
-    print("NFC登録データベースを改変します。以下の選択肢から該当番号を入力してください。\n データの追加:1\n データの削除:2\n 全データの照会:3")
-    number = input('該当番号>> ')
-    if number == str(1) or str(2) or str(3):
-        db_change_signal = "on"
-        #print(db_change_signal)
-        imput_number = number
-        
-    else:
-        print("errer")
-        print("半角で　1 or 2 or 3を入力して")
         
         
     
@@ -304,26 +333,23 @@ if __name__ == '__main__':
         ServoCon.control_key(SERVO_OPEN)
         status = "open"
         databese_namelist = Databese_Namelist()
+        database_touchlog = Databese_Touchlog()
 
         
-        # logを記録する
+        # 起動を記録する
+        database_touchlog.touchlog("start program", "No number", time.time(), status)
+        database_touchlog.delete_data()
         #file = open(file_log,'a')
         #file.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ", nfcservo.py_START\n")
         #file.close()
         
-        while True:
-            #nfcservo_thread = threading.Thread(target=nfcservo)
-            waitcount_thread = threading.Thread(target=waitcount)
-
-            #nfcservo_thread.start()
-            waitcount_thread.start()
-            #nfcservo_thread.join()
-            #waitcount_thread.join()
-
-            nfcservo()
+        
+        
+        nfcservo()
+        
 
     except KeyboardInterrupt:
         GPIO.cleanup()
-        waitcount_thread.kill()
+        #waitcount_thread.kill()
         #cconnection.close()
         pass
