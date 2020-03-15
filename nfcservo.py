@@ -2,15 +2,10 @@
 #! -*- coding:utf-8 -*-
 import binascii
 import nfc
-
 import RPi.GPIO as GPIO
 import datetime
 import time
 import sqlite3
-import datetime
-import time
-import threading
-import ctypes
 
 
 ###### NFC readerの設定 ######
@@ -37,17 +32,17 @@ SERVO_PWM = 50 #サーボモータのPWMサイクル値(SG-90の場合、20ms=50
 SERVO_OPEN =10.85  #時にサーボモータに渡すデューティサイクル値(鍵に合わせて変更)
 SERVO_CLOSE =4.55 #施錠時にサーボモータに渡すデューティサイクル値(鍵に合わせて変更)
 SERVO_wait = 7.7 #施錠時にサーボモータに渡すデューティサイクル値(鍵に合わせて変更)
-button_GPIO = 3 # データベースプログラムに入るスイッチ
-
+button_GPIO = 3 # データベースプログラムに入るスイッチのピン番号
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(SERVO_GPIO, GPIO.OUT)
 GPIO.setup(button_GPIO, GPIO.IN,pull_up_down=GPIO.PUD_UP)
 ##########################
 
-###### 鍵の設定 #######
-# 鍵の状態を保管w
+###### 各種記録 #######
+# 鍵の状態を記録w
 status = ""
+# GPIOボタンの状態を記録
 gpio_button = ""
 ####################		
 
@@ -61,16 +56,14 @@ def nfc_imput():
         # clf.sense( [リモートターゲット], [検索回数], [検索の間隔] )
         target_res = clf.sense(target_req_suica, iterations=int(TIME_cycle//TIME_interval)+1 , interval=TIME_interval)
         if target_res is not None: 
-            #tag = nfc.tag.tt3.Type3Tag(clf, target_res)
-            #なんか仕様変わったっぽい？↓なら動いた
             tag = nfc.tag.activate_tt3(clf, target_res)
             tag.sys = 3
             #IDmを取り出す
             idm = binascii.hexlify(tag.idm)
-            #print('Suica detected. idm = ' + str(idm))
-            break
+            break #NFC待ちループから抜ける
+
+        #スイッチが押されたら，
         if GPIO.input(button_GPIO) == 0:
-            print(gpio_button)
             gpio_button = "0"
             idm = "gpiobutton"
             break
@@ -78,12 +71,11 @@ def nfc_imput():
     clf.close()	
     return idm
 
-
+# データベースの中身を変更
 def database_change():
     print("NFC登録データベースを改変します。以下の選択肢から該当番号を入力してください。\n データの追加:1\n データの削除:2\n 全データの照会:3")
     #number = waitinput
     number = input('該当番号>> ')
-
     # データの追加
     if number == str(1):
         print("名前とsuicaを登録します．")
@@ -121,7 +113,7 @@ def database_change():
         serchresult = databese_namelist.idm_serch(idm_number)
         #　idmがデータベースにあったら
         if serchresult is not None:
-            databese_namelist.delite(idm_number)
+            databese_namelist.delete(idm_number)
             print(">>> Data deletion completed")
         #  idmがデータベースになかったら   
         else:
@@ -139,10 +131,10 @@ def database_change():
         
         print("errer")
         print("半角で　1 or 2 or 3を入力して")
-    
 
     time.sleep(1)
-    
+
+#NFCのタッチしたログを保存する
 class Databese_Touchlog():
     def __init__(self):
         self.dbpath = '/home/pi/nfcname.db'
@@ -175,7 +167,7 @@ class Databese_Touchlog():
         
 
 
-
+# 名前とIDを保存するデータベースを操作する
 class Databese_Namelist():
     def __init__(self):
         self.dbpath = '/home/pi/nfcname.db'
@@ -187,6 +179,7 @@ class Databese_Namelist():
         # コミット
         self.connection.commit()
     
+    # データベース内で検索
     def idm_serch(self,idm_number):
         connection=self.connection
         cursor=self.cursor
@@ -197,7 +190,7 @@ class Databese_Namelist():
         connection.commit() 
         return result
 
-
+    # データベースに追加
     def insert(self,person_name, idm_number, detect_time):
         connection=self.connection
         cursor=self.cursor
@@ -206,7 +199,7 @@ class Databese_Namelist():
         connection.execute(sql, datas)
         connection.commit() 
 
-
+    #　データベースの内容を更新
     def update(self,person_name, idm_number, detect_time):
         connection=self.connection
         cursor=self.cursor
@@ -216,7 +209,8 @@ class Databese_Namelist():
         connection.commit() 
         #print(datas)
 
-    def delite(self,idm_number):
+    # データベースの内容の一部を削除
+    def delete(self,idm_number):
         connection=self.connection
         cursor=self.cursor
         sql = "delete from namelist where idm_number = ?"
@@ -224,7 +218,7 @@ class Databese_Namelist():
         connection.execute(sql, datas)
         connection.commit() 
 
-
+    # データベースの内容をすべて表示
     def show(self):
         connection=self.connection
         cursor=self.cursor
@@ -276,19 +270,20 @@ class ServoCon:
         servo.stop()
 
 
-
+# メイン
 def nfcservo():
     global gpio_button
     while True:
+        print("*****************************************")
         print ('NFC waiting...')
         idm = nfc_imput()
         # 特定のIDmだった場合のアクション
         # データベースにidm_numberがあるかどうか検索
         serchresult = databese_namelist.idm_serch(str(idm))
-        print(gpio_button)
+        # スイッチが押されてたら
         if gpio_button =="0":
                 database_change()
-                gpio_button = "1"
+                gpio_button = "1" # 押されていない状態に戻す
                 continue
         # idmがデータベースになかったら
         elif serchresult == None:
@@ -297,7 +292,7 @@ def nfcservo():
             database_touchlog.touchlog("No registration", str(idm), time.time(), status)
 
             time.sleep(1)
-            
+        # idmがデータベースにあったら    
         elif serchresult[1] == str(idm):
             print("【 " + serchresult[0] + "の登録済みid : " + serchresult[1] + "】")
             
@@ -313,12 +308,6 @@ def nfcservo():
             
             # logを記録する
             database_touchlog.touchlog(serchresult[0], serchresult[1], time.time(), state)
-            #file = open(file_log,'a')
-            #file.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ", " + result[0]+ ", " + str(idm) + ", " + before_status + ">>>" + ServoCon.get_status() + "\n")
-            #file.close()
-
-            # 念のため１秒まつ
-            time.sleep(1)    
             
         else:
             print("errer")
@@ -338,18 +327,11 @@ if __name__ == '__main__':
         
         # 起動を記録する
         database_touchlog.touchlog("start program", "No number", time.time(), status)
-        database_touchlog.delete_data()
-        #file = open(file_log,'a')
-        #file.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ", nfcservo.py_START\n")
-        #file.close()
-        
-        
-        
+        database_touchlog.delete_data() # 古い記録を削除
+
         nfcservo()
         
 
     except KeyboardInterrupt:
         GPIO.cleanup()
-        #waitcount_thread.kill()
-        #cconnection.close()
         pass
