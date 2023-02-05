@@ -2,11 +2,12 @@
 Raspberry Piを使った簡易的なスマートロックです．NFCリーダーにSuicaをかざすと鍵を解錠・施錠できます．
  
 # DEMO
-後で追加
+https://user-images.githubusercontent.com/41606073/216840401-f0499e54-4477-43a9-966a-bd5864d0711d.mp4
  
 # Features
-・iPhoneなどの「mobile Suica」に対応
-・プログラムの一部変更(コメントアウト)でiDなどのカードにも対応可能
+* iPhoneなどの「mobile Suica」に対応
+* プログラムの一部変更(コメントアウト)でiDなどのカードにも対応可能
+* 歯車を工夫することによって歯車を連動して回さないため、物理鍵を使用するときに負荷がかからない
  
 # Requirement
 * nfcpy 1.0.3
@@ -37,6 +38,13 @@ sudo udevadm control -R
 ```
  
 # Usage
+以下の部品で動作の確認をしています。
+* Raspberry pi 3 (Raspberry pi zeroでも可)
+* MG996Rモーダー
+* ソニー製NFCリーダー
+* 3Dプリンタ製の本体(body,thumb_turn, stick, gear_large, gear_small)
+
+
 ## raspberry pi3 model BのGPIOピンに以下のように配線をする．
 ### モーター
 GPIO4 : 信号線(黄色)
@@ -90,10 +98,7 @@ Terminal=true
 
 
 # Author
-
 * 作成者 : zusi
-* 所属   : 
-* E-mail: 
  
 # License
 "raspi_smartlock" is under [MIT license](https://en.wikipedia.org/wiki/MIT_License).
